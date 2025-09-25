@@ -1,0 +1,154 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: 'AWS::Serverless-2016-10-31'
+Description: >
+  todo-app-backend
+  Serverless backend for a To-Do application.
+
+Globals:
+  Function:
+    Timeout: 10
+    Runtime: nodejs18.x
+    Tracing: Active # Enable X-Ray tracing for better observability
+  Api:
+    Cors:
+      AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+      AllowOrigin: "'*'" # Be more restrictive in production
+      AllowMethods: "'GET,POST,PUT,DELETE'"
+
+Resources:
+  # DynamoDB Table for Tasks
+  TodoAppTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'TodoAppTable-${AWS::StackName}'
+      AttributeDefinitions:
+        - AttributeName: "PK"
+          AttributeType: "S"
+        - AttributeName: "SK"
+          AttributeType: "S"
+      KeySchema:
+        - AttributeName: "PK"
+          KeyType: "HASH"
+        - AttributeName: "SK"
+          KeyType: "RANGE"
+      [cite_start]BillingMode: PAY_PER_REQUEST # On-demand capacity 
+
+  # Lambda Function for handling tasks (CRUD)
+  TasksFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/tasks.handler
+      Events:
+        CreateTask:
+          Type: Api
+          Properties:
+            Path: /tasks
+            Method: POST
+            RestApiId: !Ref TodoAppApi
+        GetTasks:
+          Type: Api
+          Properties:
+            Path: /tasks
+            Method: GET
+            RestApiId: !Ref TodoAppApi
+        GetTask:
+          Type: Api
+          Properties:
+            Path: /tasks/{taskId}
+            Method: GET
+            RestApiId: !Ref TodoAppApi
+        UpdateTask:
+          Type: Api
+          Properties:
+            Path: /tasks/{taskId}
+            Method: PUT
+            RestApiId: !Ref TodoAppApi
+        DeleteTask:
+          Type: Api
+          Properties:
+            Path: /tasks/{taskId}
+            Method: DELETE
+            RestApiId: !Ref TodoAppApi
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TodoAppTable
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt TaskNotificationsTopic.TopicName
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref TodoAppTable
+
+  # API Gateway REST API
+  TodoAppApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: Prod
+      Auth:
+        DefaultAuthorizer: CognitoAuthorizer
+        Authorizers:
+          CognitoAuthorizer:
+            UserPoolArn: !GetAtt UserPool.Arn
+            IdentitySource: "method.request.header.Authorization"
+
+  # Cognito User Pool for authentication [cite: 3, 40]
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      AutoVerifiedAttributes:
+        - email
+      UsernameAttributes:
+        - email
+      
+  # SNS Topic for task notifications [cite: 4, 22, 41]
+  TaskNotificationsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: "Task Expiry Notifications"
+      
+  # SQS FIFO Queue for expiry events [cite: 4, 25, 42]
+  TaskExpiryQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      FifoQueue: true
+      ContentBasedDeduplication: true
+      QueueName: !Sub 'TaskExpiryQueue-${AWS::StackName}.fifo'
+      
+  # Lambda for handling task expiry
+  TaskExpiryHandlerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/expiry.handler
+      Events:
+        SQSEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt TaskExpiryQueue.Arn
+            BatchSize: 1
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TodoAppTable
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt TaskNotificationsTopic.TopicName
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref TodoAppTable
+          SNS_TOPIC_ARN: !Ref TaskNotificationsTopic
+
+  # PostAuthentication Lambda for subscribing users to SNS 
+  PostAuthenticationLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/post_auth.handler
+      Policies:
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt TaskNotificationsTopic.TopicName
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN: !Ref TaskNotificationsTopic
+
+  # Trigger for PostAuthentication Lambda
+  PostAuthenticationTrigger:
+    Type: AWS::Cognito::UserPoolUserToGroupAttachment
+    Properties:
+      GroupName: PostAuthentication
+      UserPoolId: !Ref UserPool
