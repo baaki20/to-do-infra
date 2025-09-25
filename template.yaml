@@ -31,7 +31,7 @@ Resources:
           KeyType: "HASH"
         - AttributeName: "SK"
           KeyType: "RANGE"
-      [cite_start]BillingMode: PAY_PER_REQUEST # On-demand capacity 
+      BillingMode: PAY_PER_REQUEST # On-demand capacity 
 
   # Lambda Function for handling tasks (CRUD)
   TasksFunction:
@@ -90,7 +90,7 @@ Resources:
             UserPoolArn: !GetAtt UserPool.Arn
             IdentitySource: "method.request.header.Authorization"
 
-  # Cognito User Pool for authentication [cite: 3, 40]
+  # Cognito User Pool for authentication
   UserPool:
     Type: AWS::Cognito::UserPool
     Properties:
@@ -99,13 +99,13 @@ Resources:
       UsernameAttributes:
         - email
       
-  # SNS Topic for task notifications [cite: 4, 22, 41]
+  # SNS Topic for task notifications
   TaskNotificationsTopic:
     Type: AWS::SNS::Topic
     Properties:
       DisplayName: "Task Expiry Notifications"
       
-  # SQS FIFO Queue for expiry events [cite: 4, 25, 42]
+  # SQS FIFO Queue for expiry events
   TaskExpiryQueue:
     Type: AWS::SQS::Queue
     Properties:
