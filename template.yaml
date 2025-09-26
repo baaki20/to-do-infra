@@ -37,6 +37,7 @@ Resources:
   TasksFunction:
     Type: AWS::Serverless::Function
     Properties:
+      CodeUri: src/handlers/
       Handler: src/handlers/tasks.handler
       Events:
         CreateTask:
@@ -117,6 +118,7 @@ Resources:
   TaskExpiryHandlerFunction:
     Type: AWS::Serverless::Function
     Properties:
+      CodeUri: src/handlers/
       Handler: src/handlers/expiry.handler
       Events:
         SQSEvent:
@@ -138,6 +140,7 @@ Resources:
   PostAuthenticationLambda:
     Type: AWS::Serverless::Function
     Properties:
+      CodeUri: src/handlers/
       Handler: src/handlers/post_auth.handler
       Policies:
         - SNSPublishMessagePolicy:
