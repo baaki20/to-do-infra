@@ -32,13 +32,15 @@ Resources:
         - AttributeName: "SK"
           KeyType: "RANGE"
       BillingMode: PAY_PER_REQUEST # On-demand capacity 
+      StreamSpecification: 
+        StreamViewType: NEW_AND_OLD_IMAGES 
 
   # Lambda Function for handling tasks (CRUD)
   TasksFunction:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: src/handlers/
-      Handler: src/handlers/tasks.handler
+      Handler: tasks.handler
       Events:
         CreateTask:
           Type: Api
@@ -99,7 +101,19 @@ Resources:
         - email
       UsernameAttributes:
         - email
+      LambdaConfig:
+        PostAuthentication: !GetAtt PostAuthenticationLambda.Arn 
       
+  # Cognito User Pool Client for our web/mobile app
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub '${AWS::StackName}-client'
+      UserPoolId: !Ref UserPool
+      ExplicitAuthFlows:
+        - USER_PASSWORD_AUTH
+      GenerateSecret: false # Recommended for public clients like web apps
+
   # SNS Topic for task notifications
   TaskNotificationsTopic:
     Type: AWS::SNS::Topic
@@ -119,7 +133,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: src/handlers/
-      Handler: src/handlers/expiry.handler
+      Handler: expiry.handler
       Events:
         SQSEvent:
           Type: SQS
@@ -136,22 +150,85 @@ Resources:
           TABLE_NAME: !Ref TodoAppTable
           SNS_TOPIC_ARN: !Ref TaskNotificationsTopic
 
-  # PostAuthentication Lambda for subscribing users to SNS 
+# Lambda for handling DynamoDB Stream events (Scheduling/Cancelling Expiry)
+  StreamHandlerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/handlers/
+      Handler: stream_handler.handler
+      Events:
+        StreamEvent:
+          Type: DynamoDB
+          Properties:
+            Stream: !GetAtt TodoAppTable.StreamArn
+            StartingPosition: LATEST
+            BatchSize: 10
+      Policies:
+        # Explicit IAM Statement to read the DynamoDB Stream
+        - Statement:
+            Effect: Allow
+            Action:
+              - dynamodb:DescribeStream
+              - dynamodb:GetRecords
+              - dynamodb:GetShardIterator
+              - dynamodb:ListStreams
+            Resource: !GetAtt TodoAppTable.StreamArn
+        # Policy to send messages to the SQS Queue
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt TaskExpiryQueue.QueueName
+      Environment:
+        Variables:
+          SQS_QUEUE_URL: !Ref TaskExpiryQueue
+
+# PostAuthentication Lambda for subscribing users to SNS 
   PostAuthenticationLambda:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: src/handlers/
-      Handler: src/handlers/post_auth.handler
+      Handler: post_auth.handler
       Policies:
-        - SNSPublishMessagePolicy:
-            TopicName: !GetAtt TaskNotificationsTopic.TopicName
+        # Explicit IAM Statement for SNS Publish (Needed for later notifications)
+        - Statement:
+            Effect: Allow
+            Action:
+              - sns:Publish
+            Resource: !Ref TaskNotificationsTopic
+        # Explicit IAM Statement for SNS Subscribe (The Fix)
+        - Statement:
+            Effect: Allow
+            Action:
+              - sns:Subscribe # Grants permission to subscribe the user
+            Resource: !Ref TaskNotificationsTopic
       Environment:
         Variables:
           SNS_TOPIC_ARN: !Ref TaskNotificationsTopic
 
-  # Trigger for PostAuthentication Lambda
-  PostAuthenticationTrigger:
-    Type: AWS::Cognito::UserPoolUserToGroupAttachment
+# Permission for Cognito to invoke the PostAuthentication Lambda
+  CognitoPermissionToInvokePostAuth:
+    Type: AWS::Lambda::Permission
     Properties:
-      GroupName: PostAuthentication
-      UserPoolId: !Ref UserPool
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !GetAtt PostAuthenticationLambda.Arn
+      Principal: 'cognito-idp.amazonaws.com'
+      SourceArn: !GetAtt UserPool.Arn # Restricts invocation to this specific User Pool
+Outputs:
+  # The URL of the REST API created by API Gateway
+  TodoAppApi:
+    Description: "API Gateway endpoint URL for Prod stage"
+    Value: !Sub "https://${TodoAppApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/"
+    Export:
+      Name: !Sub "${AWS::StackName}-TodoAppApi"
+
+  # The ID of the Cognito User Pool
+  UserPoolId:
+    Description: "Cognito User Pool ID"
+    Value: !Ref UserPool
+    Export:
+      Name: !Sub "${AWS::StackName}-UserPoolId"
+
+  # The ID of the Cognito User Pool Client (for frontends)
+  UserPoolClientId:
+    Description: "Cognito User Pool Client ID"
+    Value: !Ref UserPoolClient
+    Export:
+      Name: !Sub "${AWS::StackName}-UserPoolClientId"
