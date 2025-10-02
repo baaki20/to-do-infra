@@ -11,9 +11,9 @@ Globals:
     Tracing: Active # Enable X-Ray tracing for better observability
   Api:
     Cors:
+      AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
       AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
-      AllowOrigin: "'*'" # Be more restrictive in production
-      AllowMethods: "'GET,POST,PUT,DELETE'"
+      AllowOrigin: "'*'"
 
 Resources:
   # DynamoDB Table for Tasks
@@ -35,6 +35,35 @@ Resources:
       StreamSpecification: 
         StreamViewType: NEW_AND_OLD_IMAGES 
 
+  # API Gateway REST API
+  TodoAppApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: Prod
+      Auth:
+        DefaultAuthorizer: CognitoAuthorizer
+        Authorizers:
+          CognitoAuthorizer:
+            UserPoolArn: !GetAtt UserPool.Arn
+            IdentitySource: "method.request.header.Authorization"
+      Cors:
+        AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+        AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+        AllowOrigin: "'*'"
+      GatewayResponses:
+        DEFAULT_4XX:
+          ResponseParameters:
+            Headers:
+              Access-Control-Allow-Origin: "'*'"
+              Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+        DEFAULT_5XX:
+          ResponseParameters:
+            Headers:
+              Access-Control-Allow-Origin: "'*'"
+              Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+
   # Lambda Function for handling tasks (CRUD)
   TasksFunction:
     Type: AWS::Serverless::Function
@@ -43,6 +72,13 @@ Resources:
       Handler: tasks.handler
       Events:
         CreateTask:
+          Type: Api
+          Properties:
+            Path: /tasks
+            Method: OPTIONS
+            Auth:
+              Authorizer: NONE
+            RestApiId: !Ref TodoAppApi
           Type: Api
           Properties:
             Path: /tasks
@@ -55,6 +91,13 @@ Resources:
             Method: GET
             RestApiId: !Ref TodoAppApi
         GetTask:
+          Type: Api
+          Properties:
+            Path: /tasks/{taskId}
+            Method: OPTIONS
+            Auth:
+              Authorizer: NONE
+            RestApiId: !Ref TodoAppApi
           Type: Api
           Properties:
             Path: /tasks/{taskId}
@@ -80,18 +123,6 @@ Resources:
       Environment:
         Variables:
           TABLE_NAME: !Ref TodoAppTable
-
-  # API Gateway REST API
-  TodoAppApi:
-    Type: AWS::Serverless::Api
-    Properties:
-      StageName: Prod
-      Auth:
-        DefaultAuthorizer: CognitoAuthorizer
-        Authorizers:
-          CognitoAuthorizer:
-            UserPoolArn: !GetAtt UserPool.Arn
-            IdentitySource: "method.request.header.Authorization"
 
   # Cognito User Pool for authentication
   UserPool:
@@ -215,7 +246,7 @@ Outputs:
   # The URL of the REST API created by API Gateway
   TodoAppApi:
     Description: "API Gateway endpoint URL for Prod stage"
-    Value: !Sub "https://${TodoAppApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/"
+    Value: !Sub "https://${TodoAppApi}.execute-api.${AWS::Region}.amazonaws.com/Prod"
     Export:
       Name: !Sub "${AWS::StackName}-TodoAppApi"
 
