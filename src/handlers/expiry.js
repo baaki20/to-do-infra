@@ -14,7 +14,6 @@ exports.handler = async (event) => {
             const messageBody = JSON.parse(record.body);
             const { userId, taskId } = messageBody;
 
-            // Check the current status of the task in DynamoDB
             const task = await ddb.get({
                 TableName: TABLE_NAME,
                 Key: {
@@ -23,9 +22,7 @@ exports.handler = async (event) => {
                 }
             }).promise();
 
-            // Only process if the task is still 'Pending'
             if (task.Item && task.Item.Status === 'Pending') {
-                // Update task status to 'Expired'
                 await ddb.update({
                     TableName: TABLE_NAME,
                     Key: {
@@ -42,7 +39,6 @@ exports.handler = async (event) => {
                 }).promise();
                 console.log(`Task ${taskId} for user ${userId} updated to 'Expired'`);
 
-                // Send SNS notification
                 const subject = `Your Task Has Expired!`;
                 const message = `Your task "${task.Item.Description}" has reached its deadline and is now marked as expired.`;
                 await sns.publish({
@@ -57,7 +53,6 @@ exports.handler = async (event) => {
 
         } catch (error) {
             console.error('Error processing SQS record:', error);
-            // Throwing the error will cause SQS to retry the message
             throw error;
         }
     }

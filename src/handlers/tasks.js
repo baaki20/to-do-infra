@@ -1,4 +1,3 @@
-// src/handlers/tasks.js
 const AWS = require('aws-sdk');
 const { v4: uuidv4 } = require('uuid');
 
@@ -18,7 +17,6 @@ exports.handler = async (event) => {
     };
 
     try {
-        // Retrieve the userId from the Cognito authorizer context
         const userId = event.requestContext.authorizer.claims.sub;
         if (!userId) {
             throw new Error('User ID not found in token.');
@@ -37,7 +35,7 @@ exports.handler = async (event) => {
             case 'POST':
                 const requestJSON = JSON.parse(event.body);
                 const taskId = uuidv4();
-                const deadline = new Date(Date.now() + 5 * 60 * 1000).toISOString(); // Default to 5 minutes from creation 
+                const deadline = new Date(Date.now() + 5 * 60 * 1000).toISOString();
 
                 await ddb.put({
                     TableName: TABLE_NAME,
@@ -47,7 +45,7 @@ exports.handler = async (event) => {
                         EntityType: 'TASK',
                         Description: requestJSON.Description,
                         Date: new Date().toISOString(),
-                        Status: 'Pending', // All new tasks are pending
+                        Status: 'Pending',
                         Deadline: deadline,
                     }
                 }).promise();
