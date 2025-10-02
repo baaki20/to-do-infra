@@ -7,6 +7,12 @@ const SNS_TOPIC_ARN = process.env.SNS_TOPIC_ARN;
 exports.handler = async (event) => {
     console.log('PostAuthentication trigger received event:', JSON.stringify(event, null, 2));
 
+    // Only subscribe the user on their initial sign-up confirmation.
+    if (event.triggerSource !== 'PostAuthentication_ConfirmSignUp') {
+        console.log('Trigger is not from sign-up confirmation. Skipping SNS subscription.');
+        return event;
+    }
+
     // Get the user's email from the Cognito event
     const userEmail = event.request.userAttributes.email;
 

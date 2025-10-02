@@ -9,11 +9,6 @@ Globals:
     Timeout: 10
     Runtime: nodejs18.x
     Tracing: Active # Enable X-Ray tracing for better observability
-  Api:
-    Cors:
-      AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
-      AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
-      AllowOrigin: "'*'"
 
 Resources:
   # DynamoDB Table for Tasks
@@ -46,10 +41,12 @@ Resources:
           CognitoAuthorizer:
             UserPoolArn: !GetAtt UserPool.Arn
             IdentitySource: "method.request.header.Authorization"
+      # This CORS configuration will apply to all methods on this API.
+      # It correctly configures OPTIONS methods to not require authorization.
       Cors:
-        AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+        AllowOrigin: "'*'" # Be more specific in production
         AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
-        AllowOrigin: "'*'"
+        AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
       GatewayResponses:
         DEFAULT_4XX:
           ResponseParameters:
@@ -71,44 +68,35 @@ Resources:
       CodeUri: src/handlers/
       Handler: tasks.handler
       Events:
+        # This event handles the POST request to create a task
         CreateTask:
-          Type: Api
-          Properties:
-            Path: /tasks
-            Method: OPTIONS
-            Auth:
-              Authorizer: NONE
-            RestApiId: !Ref TodoAppApi
           Type: Api
           Properties:
             Path: /tasks
             Method: POST
             RestApiId: !Ref TodoAppApi
+        # This event handles the GET request to list all tasks
         GetTasks:
           Type: Api
           Properties:
             Path: /tasks
             Method: GET
             RestApiId: !Ref TodoAppApi
+        # This event handles the GET request for a single task
         GetTask:
-          Type: Api
-          Properties:
-            Path: /tasks/{taskId}
-            Method: OPTIONS
-            Auth:
-              Authorizer: NONE
-            RestApiId: !Ref TodoAppApi
           Type: Api
           Properties:
             Path: /tasks/{taskId}
             Method: GET
             RestApiId: !Ref TodoAppApi
+        # This event handles the PUT request to update a task
         UpdateTask:
           Type: Api
           Properties:
             Path: /tasks/{taskId}
             Method: PUT
             RestApiId: !Ref TodoAppApi
+        # This event handles the DELETE request to remove a task
         DeleteTask:
           Type: Api
           Properties:
